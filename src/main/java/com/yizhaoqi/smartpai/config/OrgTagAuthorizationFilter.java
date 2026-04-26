@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
  * 支持多级访问控制：
  * 1. 用户私人空间：仅资源创建者可访问
  * 2. 组织资源：组织成员可访问
- * 3. 公开资源：所有用户可访问
+ * 3. 组织内公开资源：组织成员可访问
  * 
  * 实现说明：
  * 本过滤器主要解决两类请求的授权需求：
@@ -61,6 +61,7 @@ public class OrgTagAuthorizationFilter extends OncePerRequestFilter {
                 path.matches(".*/upload/merge.*") || 
                 path.matches(".*/documents/uploads.*") ||
                 path.matches(".*/search/hybrid.*") ||
+                (path.matches(".*/documents/[a-fA-F0-9]{32}/visibility.*") && "PATCH".equals(request.getMethod())) ||
                 (path.matches(".*/documents/[a-fA-F0-9]{32}.*") && "DELETE".equals(request.getMethod()))) {
                 
                 String operation = "未知操作";
@@ -72,6 +73,8 @@ public class OrgTagAuthorizationFilter extends OncePerRequestFilter {
                     operation = "获取用户文档";
                 } else if (path.contains("/search/hybrid")) {
                     operation = "混合检索";
+                } else if ("PATCH".equals(request.getMethod()) && path.matches(".*/documents/[a-fA-F0-9]{32}/visibility.*")) {
+                    operation = "切换文件可见范围";
                 } else if ("DELETE".equals(request.getMethod()) && path.matches(".*/documents/[a-fA-F0-9]{32}.*")) {
                     operation = "删除文档";
                 }
@@ -130,16 +133,6 @@ public class OrgTagAuthorizationFilter extends OncePerRequestFilter {
             
             String resourceOrgTag = resourceInfo.getOrgTag();
             
-            // 如果是公开资源、资源没有组织标签、或属于默认组织，直接放行
-            if (resourceInfo.isPublic() || 
-                resourceOrgTag == null || 
-                resourceOrgTag.isEmpty() || 
-                DEFAULT_ORG_TAG.equals(resourceOrgTag)) {
-                logger.debug("资源是公开的或无组织标签或属于默认组织，放行请求");
-                filterChain.doFilter(request, response);
-                return;
-            }
-            
             // 从请求头获取token
             String token = extractToken(request);
             if (token == null) {
@@ -171,6 +164,22 @@ public class OrgTagAuthorizationFilter extends OncePerRequestFilter {
                 // 私人标签资源只允许拥有者访问，此处已排除拥有者和管理员，拒绝访问
                 logger.debug("私人资源，且用户不是拥有者或管理员，拒绝访问");
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
+
+            // 非组织内公开资源，只允许拥有者或管理员访问；此处两者已提前放行
+            if (!resourceInfo.isPublic()) {
+                logger.debug("资源仅自己可见，拒绝非拥有者访问");
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
+
+            // 默认组织 / 无组织标签 的组织内公开资源，允许已登录用户访问
+            if (resourceOrgTag == null ||
+                resourceOrgTag.isEmpty() ||
+                DEFAULT_ORG_TAG.equals(resourceOrgTag)) {
+                logger.debug("默认组织或无组织标签的组织内公开资源，放行已登录用户请求");
+                filterChain.doFilter(request, response);
                 return;
             }
             
@@ -279,7 +288,7 @@ public class OrgTagAuthorizationFilter extends OncePerRequestFilter {
     }
     
     /**
-     * 检查资源是否为公开资源
+     * 检查资源是否为组织内公开资源
      */
     private boolean isPublicResource(String resourceId) {
         ResourceInfo resourceInfo = getResourceInfo(resourceId);

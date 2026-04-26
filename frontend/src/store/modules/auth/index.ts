@@ -183,8 +183,11 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
   async function logout() {
     const { error } = await fetchLogout();
     if (!error) {
+      const chatStore = useChatStore();
+      chatStore.wsClose();
       resetStore();
       useKnowledgeBaseStore().$reset();
+      chatStore.$reset();
     }
   }
 
@@ -199,6 +202,7 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
     login,
     logout,
     initUserInfo,
+    getUserInfo,
     setToken
   };
 });

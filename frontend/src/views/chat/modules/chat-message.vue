@@ -1,9 +1,22 @@
 <script setup lang="ts">
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { nextTick } from 'vue';
+import { NModal } from 'naive-ui';
 import { VueMarkdownIt } from 'vue-markdown-shiki';
 import { formatDate } from '@/utils/common';
+import FilePreview from '@/components/custom/file-preview.vue';
 defineOptions({ name: 'ChatMessage' });
+
+// 来源文件预览状态（点击来源链接时，在弹窗里调用 FilePreview 组件）
+const previewVisible = ref(false);
+const previewFileName = ref('');
+const previewFileMd5 = ref('');
+
+function closeFilePreview() {
+  previewVisible.value = false;
+  previewFileName.value = '';
+  previewFileMd5.value = '';
+}
 
 const props = defineProps<{
   msg: Api.Chat.Message,
@@ -12,8 +25,33 @@ const props = defineProps<{
 
 const authStore = useAuthStore();
 
+function copyTextCompat(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+    return;
+  }
+  fallbackCopy(text);
+}
+
+function fallbackCopy(text: string) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.top = '0';
+  ta.style.left = '0';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
 function handleCopy(content: string) {
-  navigator.clipboard.writeText(content);
+  copyTextCompat(content);
   window.$message?.success('已复制');
 }
 
@@ -112,106 +150,20 @@ function handleContentClick(event: MouseEvent) {
   }
 }
 
-// 处理来源文件点击事件
-async function handleSourceFileClick(fileInfo: { fileName: string, referenceNumber: number, fileMd5?: string }) {
-  const { fileName, referenceNumber, fileMd5: extractedMd5 } = fileInfo;
-  console.log('点击了来源文件:', fileName, '引用编号:', referenceNumber, '提取的MD5:', extractedMd5, '会话ID:', props.sessionId);
-
-  try {
-    window.$message?.loading(`正在获取文件下载链接: ${fileName}`, {
-      duration: 0,
-      closable: false
-    });
-
-    let targetMd5 = null;
-
-    // 方案1：优先使用从引用中直接提取的MD5
-    if (extractedMd5) {
-      console.log('使用从引用中提取的MD5:', extractedMd5);
-      targetMd5 = extractedMd5;
-    }
-    // 方案2：如果没有提取到MD5，则通过后端API查询
-    else if (props.sessionId) {
-      try {
-        console.log('步骤1: 通过API查询引用MD5', { sessionId: props.sessionId, referenceNumber });
-        const { error: md5Error, data: md5Data } = await request<Api.Document.ReferenceMd5Response>({
-          url: 'documents/reference-md5',
-          params: {
-            sessionId: props.sessionId,
-            referenceNumber: referenceNumber.toString()
-          },
-          baseURL: '/proxy-api'
-        });
-
-        console.log('引用MD5查询结果:', { error: md5Error, data: md5Data });
-
-        if (!md5Error && md5Data?.fileMd5) {
-          targetMd5 = md5Data.fileMd5;
-        }
-      } catch (md5Err) {
-        console.warn('通过API查询MD5失败:', md5Err);
-      }
-    }
-
-    // 如果获取到了MD5，使用MD5精确下载
-    if (targetMd5) {
-      console.log('步骤2: 使用MD5下载文件', targetMd5);
-      const { error: downloadError, data: downloadData } = await request<Api.Document.DownloadResponse>({
-        url: 'documents/download-by-md5',
-        params: {
-          fileMd5: targetMd5,
-          token: authStore.token
-        },
-        baseURL: '/proxy-api'
-      });
-
-      console.log('文件下载结果:', { error: downloadError, data: downloadData });
-
-      window.$message?.destroyAll();
-
-      if (!downloadError && downloadData?.downloadUrl) {
-        window.open(downloadData.downloadUrl, '_blank');
-        window.$message?.success(`文件下载链接已打开: ${downloadData.fileName || fileName}`);
-        return;
-      }
-    }
-
-    // 降级方案：使用文件名下载（向后兼容）
-    console.log('降级方案: 使用文件名下载', fileName);
-    const { error, data } = await request<Api.Document.DownloadResponse>({
-      url: 'documents/download',
-      params: {
-        fileName: fileName,
-        token: authStore.token
-      },
-      baseURL: '/proxy-api'
-    });
-
-    window.$message?.destroyAll();
-
-    if (error) {
-      window.$message?.error(`文件下载失败: ${error.response?.data?.message || '未知错误'}`);
-      return;
-    }
-
-    if (data?.downloadUrl) {
-      window.open(data.downloadUrl, '_blank');
-      window.$message?.success(`文件下载链接已打开: ${data.fileName || fileName}`);
-    } else {
-      window.$message?.error('未能获取到下载链接');
-    }
-  } catch (err) {
-    window.$message?.destroyAll();
-    console.error('文件下载失败:', err);
-    window.$message?.error(`文件下载失败: ${fileName}`);
-  }
+// 点击来源链接：直接以知识库页面的方式在弹窗中预览文件
+function handleSourceFileClick(fileInfo: { fileName: string, referenceNumber: number, fileMd5?: string }) {
+  const { fileName, fileMd5: extractedMd5 } = fileInfo;
+  previewFileName.value = fileName;
+  previewFileMd5.value = extractedMd5 || '';
+  previewVisible.value = true;
 }
 </script>
 
 <template>
   <div class="message-card mb-8 flex-col gap-2">
     <div v-if="msg.role === 'user'" class="flex items-center gap-4">
-      <NAvatar class="bg-success">
+      <NAvatar v-if="authStore.userInfo.avatarUrl" class="bg-success" :src="authStore.userInfo.avatarUrl" />
+      <NAvatar v-else class="bg-success">
         <SvgIcon icon="ph:user-circle" class="text-icon-large color-white" />
       </NAvatar>
       <div class="flex-col gap-1">
@@ -244,6 +196,24 @@ async function handleSourceFileClick(fileInfo: { fileName: string, referenceNumb
         </template>
       </NButton>
     </div>
+
+    <!-- 来源文件预览弹窗（复用知识库页面的 FilePreview） -->
+    <NModal
+      v-model:show="previewVisible"
+      preset="card"
+      title="文件预览"
+      class="file-preview-modal"
+      style="width: 90vw; max-width: 1400px; height: 92vh"
+    >
+      <div class="file-preview-modal-body">
+        <FilePreview
+          :file-name="previewFileName"
+          :file-md5="previewFileMd5"
+          :visible="previewVisible"
+          @close="closeFilePreview"
+        />
+      </div>
+    </NModal>
   </div>
 </template>
 
@@ -254,7 +224,7 @@ async function handleSourceFileClick(fileInfo: { fileName: string, referenceNumb
 }
 
 .assistant-bubble {
-  border-left: 3px solid rgba(37, 99, 235, 0.7);
+  border-left: 3px solid rgba(6, 95, 70, 0.7);
   background: rgba(239, 246, 255, 0.58);
   border-radius: 10px;
   padding: 8px 12px;
@@ -266,10 +236,33 @@ async function handleSourceFileClick(fileInfo: { fileName: string, referenceNumb
   padding: 8px 12px;
 }
 
+:deep() {
+  .file-preview-modal.n-card {
+    height: 92vh !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .file-preview-modal .n-card__content {
+    padding: 0 !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+  }
+
+  .file-preview-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    height: 100%;
+    width: 100%;
+  }
+}
+
 .dark {
   .assistant-bubble {
-    background: rgba(30, 58, 138, 0.2);
-    border-left-color: rgba(96, 165, 250, 0.86);
+    background: rgba(6, 78, 59, 0.2);
+    border-left-color: rgba(16, 185, 129, 0.86);
   }
 
   .user-bubble {
@@ -278,18 +271,18 @@ async function handleSourceFileClick(fileInfo: { fileName: string, referenceNumb
 }
 
 :deep(.source-file-link) {
-  color: #1890ff;
+  color: #065F46;
   cursor: pointer;
   text-decoration: underline;
   transition: color 0.2s;
 
   &:hover {
-    color: #40a9ff;
+    color: #10B981;
     text-decoration: none;
   }
 
   &:active {
-    color: #096dd9;
+    color: #064E3B;
   }
 }
 </style>

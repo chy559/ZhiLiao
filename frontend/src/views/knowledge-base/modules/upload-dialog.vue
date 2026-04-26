@@ -19,13 +19,12 @@ function createDefaultModel(): Api.KnowledgeBase.Form {
   return {
     orgTag: null,
     orgTagName: '',
-    isPublic: false,
+    isPublic: true,
     fileList: []
   };
 }
 
 const rules = ref<FormRules>({
-  orgTag: defaultRequiredRule,
   isPublic: defaultRequiredRule,
   fileList: defaultRequiredRule
 });
@@ -35,6 +34,7 @@ function close() {
 }
 
 const store = useKnowledgeBaseStore();
+
 async function handleSubmit() {
   await validate();
   loading.value = true;
@@ -69,22 +69,12 @@ function onUpdate(option: unknown) {
       <NFormItem v-if="authStore.isAdmin" label="组织标签" path="orgTag">
         <OrgTagCascader v-model:value="model.orgTag" @change="onUpdate" />
       </NFormItem>
-      <NFormItem v-else label="组织标签" path="orgTag">
-        <TheSelect
-          v-model:value="model.orgTag"
-          url="/users/org-tags"
-          key-field="orgTagDetails"
-          label-field="name"
-          value-field="tagId"
-          @change="onUpdate"
-        />
-      </NFormItem>
 
-      <NFormItem label="是否公开" path="isPublic">
+      <NFormItem label="可见范围" path="isPublic">
         <NRadioGroup v-model:value="model.isPublic" name="radiogroup">
           <NSpace :size="16">
-            <NRadio :value="true">公开</NRadio>
-            <NRadio :value="false">私有</NRadio>
+            <NRadio :value="true">公开（对学院 / 学校可见）</NRadio>
+            <NRadio :value="false">私有（仅自己可见）</NRadio>
           </NSpace>
         </NRadioGroup>
       </NFormItem>

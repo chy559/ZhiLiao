@@ -3,6 +3,8 @@ import type { ElegantConstRoute, LastLevelRouteKey, RouteKey, RouteMap } from '@
 import { useSvgIcon } from '@/hooks/common/icon';
 import { $t } from '@/locales';
 
+const MENU_EXCLUDED_ROUTE_KEYS = new Set<RouteKey>(['posts']);
+
 /**
  * Filter auth routes by roles
  *
@@ -77,10 +79,12 @@ export function getGlobalMenusByAuthRoutes(routes: ElegantConstRoute[]) {
   const menus: App.Global.Menu[] = [];
 
   routes.forEach(route => {
-    if (!route.meta?.hideInMenu) {
+    if (!route.meta?.hideInMenu && !MENU_EXCLUDED_ROUTE_KEYS.has(route.name as RouteKey)) {
       const menu = getGlobalMenuByBaseRoute(route);
 
-      if (route.children?.some(child => !child.meta?.hideInMenu)) {
+      if (
+        route.children?.some(child => !child.meta?.hideInMenu && !MENU_EXCLUDED_ROUTE_KEYS.has(child.name as RouteKey))
+      ) {
         menu.children = getGlobalMenusByAuthRoutes(route.children);
       }
 

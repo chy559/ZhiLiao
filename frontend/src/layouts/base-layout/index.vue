@@ -10,6 +10,8 @@ import GlobalTab from '../modules/global-tab/index.vue';
 import GlobalContent from '../modules/global-content/index.vue';
 import GlobalFooter from '../modules/global-footer/index.vue';
 import ThemeDrawer from '../modules/theme-drawer/index.vue';
+import ForceBindEmail from '../modules/force-bind-email/index.vue';
+import FloatingPostEntry from '../modules/floating-post-entry/index.vue';
 import { setupMixMenuContext } from '../context';
 
 defineOptions({
@@ -134,7 +136,9 @@ function getSiderCollapsedWidth() {
     </template>
     <GlobalMenu />
     <GlobalContent />
+    <FloatingPostEntry />
     <ThemeDrawer />
+    <ForceBindEmail />
     <template #footer>
       <GlobalFooter />
     </template>

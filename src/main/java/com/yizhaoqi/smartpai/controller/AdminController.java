@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yizhaoqi.smartpai.exception.CustomException;
 import com.yizhaoqi.smartpai.model.OrganizationTag;
 import com.yizhaoqi.smartpai.model.User;
+import com.yizhaoqi.smartpai.repository.FileUploadRepository;
 import com.yizhaoqi.smartpai.repository.OrganizationTagRepository;
 import com.yizhaoqi.smartpai.repository.UserRepository;
+import com.yizhaoqi.smartpai.service.ElasticsearchService;
 import com.yizhaoqi.smartpai.service.UserService;
 import com.yizhaoqi.smartpai.utils.JwtUtils;
 import com.yizhaoqi.smartpai.utils.LogUtils;
@@ -49,6 +51,12 @@ public class AdminController {
 
     @Autowired
     private MinioMigrationUtil migrationUtil;
+
+    @Autowired
+    private FileUploadRepository fileUploadRepository;
+
+    @Autowired
+    private ElasticsearchService elasticsearchService;
 
     /**
      * 获取所有用户列表
@@ -128,6 +136,38 @@ public class AdminController {
             LogUtils.logBusinessError("ADMIN_DELETE_KNOWLEDGE", adminUsername, "删除知识库文档失败", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "删除文档失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 清理 ES knowledge_base 中的孤儿 chunk：
+     * 以 file_upload 表里现存的 fileMd5 为白名单，删除 ES 中 fileMd5 不在白名单里的文档。
+     * 用于收拾历史上 delete 流程 ES 删除失败（已被吞异常）遗留的残留。
+     */
+    @PostMapping("/es/cleanup-orphans")
+    public ResponseEntity<?> cleanupEsOrphans(@RequestHeader("Authorization") String token) {
+        String adminUsername = jwtUtils.extractUsernameFromToken(token.replace("Bearer ", ""));
+        validateAdmin(adminUsername);
+
+        LogUtils.PerformanceMonitor monitor = LogUtils.startPerformanceMonitor("ADMIN_CLEANUP_ES_ORPHANS");
+        try {
+            List<String> validMd5s = fileUploadRepository.findAllDistinctFileMd5();
+            LogUtils.logBusiness("ADMIN_CLEANUP_ES_ORPHANS", adminUsername,
+                    "开始清理 ES 孤儿 chunk，DB 有效 MD5 数量: %d", validMd5s.size());
+
+            long deleted = elasticsearchService.deleteOrphansNotIn(validMd5s);
+
+            LogUtils.logUserOperation(adminUsername, "ADMIN_CLEANUP_ES_ORPHANS", "knowledge_base", "SUCCESS");
+            monitor.end("清理 ES 孤儿 chunk 完成");
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "清理完成",
+                    "data", Map.of("deleted", deleted, "validMd5Count", validMd5s.size())));
+        } catch (Exception e) {
+            LogUtils.logBusinessError("ADMIN_CLEANUP_ES_ORPHANS", adminUsername, "清理 ES 孤儿 chunk 失败", e);
+            monitor.end("清理 ES 孤儿 chunk 失败: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("code", 500, "message", "清理失败: " + e.getMessage()));
         }
     }
 
@@ -383,6 +423,30 @@ public class AdminController {
         }
     }
     
+    /**
+     * 批量导入学校/学院（CSV）。body 里直接放 CSV 全文，Content-Type 用 text/plain 即可。
+     * 返回 inserted / updated / failed 统计，用于前端给管理员反馈。
+     */
+    @PostMapping(value = "/org-tags/bulk-import", consumes = {"text/plain", "text/csv", "application/json"})
+    public ResponseEntity<?> bulkImportOrgTags(
+            @RequestHeader("Authorization") String token,
+            @RequestBody String csv) {
+
+        String adminUsername = jwtUtils.extractUsernameFromToken(token.replace("Bearer ", ""));
+        validateAdmin(adminUsername);
+        try {
+            var result = userService.bulkImportSchoolsAndColleges(csv, adminUsername);
+            return ResponseEntity.ok(Map.of("code", 200, "message", "导入完成",
+                    "data", Map.of("inserted", result.inserted, "updated", result.updated, "failed", result.failed)));
+        } catch (CustomException e) {
+            return ResponseEntity.status(e.getStatus()).body(Map.of("code", e.getStatus().value(), "message", e.getMessage()));
+        } catch (Exception e) {
+            LogUtils.logBusinessError("ADMIN_BULK_IMPORT_ORG_TAGS", adminUsername, "批量导入学校学院异常: %s", e, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("code", 500, "message", "导入失败: " + e.getMessage()));
+        }
+    }
+
     /**
      * 获取用户列表
      */

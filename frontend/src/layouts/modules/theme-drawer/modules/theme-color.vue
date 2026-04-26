@@ -14,16 +14,16 @@ function handleUpdateColor(color: string, key: App.Theme.ThemeColorKey) {
 }
 
 const swatches: string[] = [
-  '#3b82f6',
+  '#065F46',
+  '#0F766E',
+  '#047857',
+  '#14532D',
   '#6366f1',
   '#8b5cf6',
   '#a855f7',
-  '#0ea5e9',
-  '#06b6d4',
   '#f43f5e',
   '#ef4444',
   '#ec4899',
-  '#d946ef',
   '#f97316',
   '#f59e0b',
   '#eab308',

@@ -32,8 +32,7 @@ async function search() {
   loading.value = true;
   const { error, data } = await request<Api.KnowledgeBase.SearchResult[]>({
     url: '/search/hybrid',
-    params: model.value,
-    baseURL: '/proxy-api'
+    params: model.value
   });
   if (!error) {
     list.value = data;

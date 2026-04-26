@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import reactor.core.Disposable;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -42,6 +43,8 @@ public class ChatHandler {
     private final Map<String, CompletableFuture<String>> responseFutures = new ConcurrentHashMap<>();
     // 停止标志 - 简单方案
     private final Map<String, Boolean> stopFlags = new ConcurrentHashMap<>();
+    // 每个会话正在进行的上游流，用于真正取消 DeepSeek 订阅
+    private final Map<String, Disposable> activeStreams = new ConcurrentHashMap<>();
     // 用于存储每个会话的引用映射：sessionId -> {referenceNumber -> fileMd5}
     private final Map<String, Map<Integer, String>> sessionReferenceMappings = new ConcurrentHashMap<>();
 
@@ -80,7 +83,7 @@ public class ChatHandler {
             
             // 5. 调用 DeepSeek API 并处理流式响应
             logger.info("调用DeepSeek API生成回复");
-            deepSeekClient.streamResponse(userMessage, context, history, 
+            Disposable subscription = deepSeekClient.streamResponse(userMessage, context, history,
                 chunk -> {
                     // 累积响应内容
                     StringBuilder responseBuilder = responseBuilders.get(session.getId());
@@ -98,7 +101,9 @@ public class ChatHandler {
                     // 清理会话响应构建器
                     responseBuilders.remove(session.getId());
                     responseFutures.remove(session.getId());
+                    activeStreams.remove(session.getId());
                 });
+            activeStreams.put(session.getId(), subscription);
             
             // 6. 启动一个后台任务检查并标记响应完成
             new Thread(() -> {
@@ -137,6 +142,7 @@ public class ChatHandler {
                             // 清理会话响应构建器
                             responseBuilders.remove(session.getId());
                             responseFutures.remove(session.getId());
+                            activeStreams.remove(session.getId());
                             logger.info("消息处理完成，用户ID: {}", userId);
                         } else {
                             // 仍有新内容，继续等待
@@ -166,6 +172,7 @@ public class ChatHandler {
                                         // 清理会话响应构建器
                                         responseBuilders.remove(session.getId());
                                         responseFutures.remove(session.getId());
+                                        activeStreams.remove(session.getId());
                                         logger.info("消息处理完成，用户ID: {}", userId);
                                         return;
                                     }
@@ -190,6 +197,7 @@ public class ChatHandler {
                                 // 清理会话响应构建器
                                 responseBuilders.remove(session.getId());
                                 responseFutures.remove(session.getId());
+                                activeStreams.remove(session.getId());
                                 logger.info("消息处理强制完成，用户ID: {}", userId);
                             }
                         }
@@ -203,10 +211,11 @@ public class ChatHandler {
                 } catch (Exception e) {
                     logger.error("检查响应完成时出错: {}", e.getMessage(), e);
                     responseFuture.completeExceptionally(e);
-                    
+
                     // 清理会话响应构建器
                     responseBuilders.remove(session.getId());
                     responseFutures.remove(session.getId());
+                    activeStreams.remove(session.getId());
                 }
             }).start();
             
@@ -261,7 +270,8 @@ public class ChatHandler {
         List<Map<String, String>> history = getConversationHistory(conversationId);
         
         // 获取当前时间戳
-        String currentTimestamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+        String currentTimestamp = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
         
         // 添加用户消息（带时间戳）
         Map<String, String> userMsgMap = new HashMap<>();
@@ -357,7 +367,7 @@ public class ChatHandler {
                 "status", "finished", 
                 "message", "响应已完成",
                 "timestamp", currentTime,
-                "date", java.time.LocalDateTime.now().toString()
+                "date", java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).toString()
             );
             String notificationJson = objectMapper.writeValueAsString(notification);
             logger.info("发送完成通知到会话 {}: {}", session.getId(), notificationJson);
@@ -388,8 +398,15 @@ public class ChatHandler {
         String sessionId = session.getId();
         logger.info("收到停止请求，用户ID: {}, 会话ID: {}", userId, sessionId);
 
-        // 设置停止标志
+        // 设置停止标志（用于保险：即便 dispose 之后还有残余回调）
         stopFlags.put(sessionId, true);
+
+        // 真正取消上游 DeepSeek 订阅，停止计费并立即切断 chunk 流
+        Disposable subscription = activeStreams.remove(sessionId);
+        if (subscription != null && !subscription.isDisposed()) {
+            subscription.dispose();
+            logger.info("已取消上游 DeepSeek 流，会话ID: {}", sessionId);
+        }
 
         // 发送停止确认
         try {

@@ -9,10 +9,16 @@ services:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: PaiSmart2025
+      MYSQL_DATABASE: PaiSmart
     volumes:
       - mysql-data:/var/lib/mysql
-      - /data/docker/mysql/conf:/etc/mysql/conf.d
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --explicit_defaults_for_timestamp=true --lower_case_table_names=1
+    networks:
+      - pai-net
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --explicit_defaults_for_timestamp=true --lower_case_table_names=1 --innodb-buffer-pool-size=256M --max-connections=50 --table-open-cache=400 --innodb-flush-log-at-trx-commit=2
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     healthcheck:
       start_period: 5s
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
@@ -28,85 +34,79 @@ services:
       - "19001:19001"
     volumes:
       - minio-data:/data
-      - /data/docker/minio/config:/root/.minio
+    networks:
+      - pai-net
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: PaiSmart2025
-    command: server /data --console-address ":19001" -address ":19000"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    command: server /data --console-address ":19000" --address ":19001"
 
   redis:
-    image: redis
+    image: redis:latest
     container_name: redis
     restart: always
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
-      - /data/docker/redis:/logs
+    networks:
+      - pai-net
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     healthcheck:
       start_period: 5s
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
-    command: redis-server --bind 0.0.0.0 --port 6379 --requirepass PaiSmart2025 --appendonly yes
+    command: redis-server --bind 0.0.0.0 --port 6379 --requirepass PaiSmart2025 --appendonly yes --maxmemory 96mb --maxmemory-policy allkeys-lru
 
   kafka:
     image: bitnamilegacy/kafka:latest
-    container_name: kafka       # 如果需要按照新的命名规则，请改为 pai_smart_kafka
+    container_name: kafka
     restart: always
     ports:
       - "9092:9092"
       - "9093:9093"
+    networks:
+      - pai-net
     environment:
       - KAFKA_CFG_NODE_ID=0
       - KAFKA_CFG_PROCESS_ROLES=controller,broker
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@localhost:9093
-
-      # 监听器配置
       - KAFKA_CFG_LISTENERS=CONTROLLER://:9093,PLAINTEXT://:9092
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-
+      - KAFKA_HEAP_OPTS=-Xmx512m -Xms256m
     volumes:
       - kafka-data:/bitnami/kafka
+    deploy:
+      resources:
+        limits:
+          memory: 768m
     command:
       - sh
       - -c
       - |
-        # 启动 Kafka（使用 bitnami 完整初始化流程）
         /opt/bitnami/scripts/kafka/run.sh &
-
-        # 等待 Kafka 完全启动（更可靠的检测方式）
         echo "Waiting for Kafka to start..."
         while ! kafka-topics.sh --bootstrap-server localhost:9092 --list 2>/dev/null; do
           sleep 2
         done
-
-        # 创建第一个主题（忽略已存在的错误）
         echo "Creating topic: file-processing"
-        kafka-topics.sh --create \
-          --bootstrap-server localhost:9092 \
-          --replication-factor 1 \
-          --partitions 1 \
-          --topic file-processing 2>/dev/null || true
-
-        # 创建第二个主题 vectorization
+        kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic file-processing 2>/dev/null || true
         echo "Creating topic: vectorization"
-        kafka-topics.sh --create \
-          --bootstrap-server localhost:9092 \
-          --replication-factor 1 \
-          --partitions 1 \
-          --topic vectorization 2>/dev/null || true
-        # 保持容器运行
+        kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic vectorization 2>/dev/null || true
         tail -f /dev/null
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1",
-        ]
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -120,6 +120,8 @@ services:
       - 9200:9200
     volumes:
       - es-data:/usr/share/elasticsearch/data
+    networks:
+      - pai-net
     environment:
       - ELASTIC_PASSWORD=PaiSmart2025
       - node.name=pai-smart-es01
@@ -129,13 +131,13 @@ services:
       - xpack.security.enrollment.enabled=false
       - xpack.security.http.ssl.enabled=false
       - cluster.name=pai-smart-es-cluster
-
-      # 内存配置 (根据可用RAM调整)
-      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - indices.memory.index_buffer_size=10%
+      - cache.recycler.page.limit.heap=5%
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: 1024m
     command: >
       bash -c "
       if ! elasticsearch-plugin list | grep -q 'analysis-ik'; then
@@ -147,10 +149,40 @@ services:
       /usr/local/bin/docker-entrypoint.sh
       "
     healthcheck:
-      test: [ 'CMD', 'curl', '-s', 'http://localhost:9200/_cluster/health?pretty' ]
+      test: ['CMD', 'curl', '-s', 'http://localhost:9200/_cluster/health?pretty']
       interval: 30s
       timeout: 10s
       retries: 3
+
+  backend:
+    container_name: backend
+    image: crpi-r3qkhh5h65pj3yag.cn-shanghai.personal.cr.aliyuncs.com/zhiliao123/backend:latest
+    restart: always
+    ports:
+      - "8081:8081"
+    networks:
+      - pai-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      es:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m -Duser.timezone=Asia/Shanghai
+      - TZ=Asia/Shanghai
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+
+networks:
+  pai-net:
+    driver: bridge
 
 volumes:
   redis-data:

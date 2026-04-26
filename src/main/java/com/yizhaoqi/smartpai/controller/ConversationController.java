@@ -108,6 +108,60 @@ public class ConversationController {
     }
     
     /**
+     * 开启一条新的会话：清掉 user:{id}:current_conversation 指针以及当前对话历史，
+     * 下一次提问时 ChatHandler 会生成新的 conversationId，历史为空。
+     */
+    @PostMapping("/new")
+    public ResponseEntity<?> startNewConversation(@RequestHeader("Authorization") String token) {
+        LogUtils.PerformanceMonitor monitor = LogUtils.startPerformanceMonitor("START_NEW_CONVERSATION");
+        String username = null;
+        try {
+            username = jwtUtils.extractUsernameFromToken(token.replace("Bearer ", ""));
+            if (username == null || username.isEmpty()) {
+                throw new CustomException("无效的token", HttpStatus.UNAUTHORIZED);
+            }
+
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> new CustomException("用户不存在", HttpStatus.NOT_FOUND));
+
+            // ChatHandler 里使用的是 JWT userId 声明（数据库 ID 的字符串形式），
+            // 其它旧数据可能用用户名写过 key，这里一并清理。
+            List<String> pointerKeys = List.of(
+                    "user:" + user.getId() + ":current_conversation",
+                    "user:" + username + ":current_conversation"
+            );
+
+            for (String key : pointerKeys) {
+                String conversationId = redisTemplate.opsForValue().get(key);
+                if (conversationId != null) {
+                    redisTemplate.delete("conversation:" + conversationId);
+                    redisTemplate.delete(key);
+                    LogUtils.logBusiness("START_NEW_CONVERSATION", username,
+                            "已清理 key=%s, conversationId=%s", key, conversationId);
+                }
+            }
+
+            LogUtils.logUserOperation(username, "START_NEW_CONVERSATION", "conversation", "SUCCESS");
+            monitor.end("开启新会话成功");
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "已开启新会话");
+            return ResponseEntity.ok(response);
+        } catch (CustomException e) {
+            LogUtils.logBusinessError("START_NEW_CONVERSATION", username, "开启新会话失败: %s", e, e.getMessage());
+            monitor.end("开启新会话失败: " + e.getMessage());
+            return ResponseEntity.status(e.getStatus())
+                    .body(Map.of("code", e.getStatus().value(), "message", e.getMessage()));
+        } catch (Exception e) {
+            LogUtils.logBusinessError("START_NEW_CONVERSATION", username, "开启新会话异常: %s", e, e.getMessage());
+            monitor.end("开启新会话异常: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("code", 500, "message", "服务器内部错误: " + e.getMessage()));
+        }
+    }
+
+    /**
      * 从Redis获取对话历史
      */
     private ResponseEntity<?> getConversationsFromRedis(String conversationId, String username, String start_date, String end_date, LogUtils.PerformanceMonitor monitor) {

@@ -108,16 +108,23 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String path = session.getUri().getPath();
         String[] segments = path.split("/");
         String jwtToken = segments[segments.length - 1];
-        
-        // 从JWT令牌中提取用户名
-        String username = jwtUtils.extractUsernameFromToken(jwtToken);
-        if (username == null) {
-            logger.warn("无法从JWT令牌中提取用户名，使用令牌作为用户ID: {}", jwtToken);
-            return jwtToken;
+
+        // 从JWT令牌中提取用户ID（数据库ID），与HTTP请求中OrgTagAuthorizationFilter保持一致
+        String userId = jwtUtils.extractUserIdFromToken(jwtToken);
+        if (userId != null) {
+            logger.debug("从JWT令牌中提取的用户ID: {}", userId);
+            return userId;
         }
-        
-        logger.debug("从JWT令牌中提取的用户名: {}", username);
-        return username;
+
+        // 兜底：如果无法提取用户ID，尝试提取用户名
+        String username = jwtUtils.extractUsernameFromToken(jwtToken);
+        if (username != null) {
+            logger.warn("无法从JWT令牌中提取用户ID，使用用户名: {}", username);
+            return username;
+        }
+
+        logger.warn("无法从JWT令牌中提取用户信息，使用令牌作为用户ID: {}", jwtToken);
+        return jwtToken;
     }
 
     private void sendErrorMessage(WebSocketSession session, String errorMessage) {

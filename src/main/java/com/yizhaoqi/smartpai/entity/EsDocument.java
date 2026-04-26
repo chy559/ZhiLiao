@@ -1,6 +1,8 @@
 package com.yizhaoqi.smartpai.entity;
 
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 /**
@@ -8,6 +10,7 @@ import lombok.Data;
  * 包含文档内容和权限信息
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class EsDocument {
 
     private String id;             // 文档唯一标识
@@ -18,6 +21,7 @@ public class EsDocument {
     private String modelVersion;   // 向量生成模型版本
     private String userId;         // 上传用户ID
     private String orgTag;         // 组织标签
+    @JsonProperty("isPublic")
     private boolean isPublic;      // 是否公开
 
     /**

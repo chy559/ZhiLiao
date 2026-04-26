@@ -60,9 +60,26 @@ export const useKnowledgeBaseStore = defineStore(SetupStoreId.KnowledgeBase, () 
       });
       if (error) return false;
 
-      // 更新任务状态为已完成
+      // 更新任务状态为已完成，并立即用服务端记录回填 userId / orgTagName 等字段，
+      // 避免新上传文件在列表里短暂缺少“组织标签”和“删除/可见性操作”。
       const index = tasks.value.findIndex(t => t.fileMd5 === task.fileMd5);
       tasks.value[index].status = UploadStatus.Completed;
+
+      const { error: listError, data: files } = await request<Api.KnowledgeBase.UploadTask[]>({
+        url: '/documents/uploads'
+      });
+
+      if (!listError) {
+        const remoteTask = files.find(file => file.fileMd5 === task.fileMd5);
+        if (remoteTask && index !== -1) {
+          tasks.value[index] = {
+            ...tasks.value[index],
+            ...remoteTask,
+            status: UploadStatus.Completed
+          };
+        }
+      }
+
       return true;
     } catch {
       return false;
@@ -108,6 +125,7 @@ export const useKnowledgeBaseStore = defineStore(SetupStoreId.KnowledgeBase, () 
       fileMd5: md5,
       fileName: file.name,
       totalSize: file.size,
+      public: form.isPublic,
       isPublic: form.isPublic,
       uploadedChunks: [],
       progress: 0,

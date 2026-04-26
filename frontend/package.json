@@ -1,11 +1,10 @@
 {
-  "name": "pi-smart",
+  "name": "kaofu-zhiliao",
   "type": "module",
   "version": "1.3.13",
-  "description": "PaiSmart",
+  "description": "考辅智聊 - 基于 RAG 与 LLM 的考试复习聊天助手",
   "author": {
-    "name": "PaiSmart",
-    "url": "https://github.com/itwanger/PaiSmart.git"
+    "name": "考辅智聊"
   },
   "license": "MIT",
   "homepage": "https://github.com/itwanger/PaiSmart.git",
@@ -20,8 +19,7 @@
     "rag",
     "llm",
     "chat",
-    "itwanger",
-    "pai-smart"
+    "kaofu-zhiliao"
   ],
   "engines": {
     "node": ">=18.20.0",

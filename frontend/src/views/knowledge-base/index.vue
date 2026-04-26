@@ -1,6 +1,6 @@
 <script setup lang="tsx">
-import type { UploadFileInfo } from 'naive-ui';
-import { NButton, NEllipsis, NModal, NPopconfirm, NProgress, NTag, NUpload } from 'naive-ui';
+import type { DropdownOption, UploadFileInfo } from 'naive-ui';
+import { NButton, NDropdown, NEllipsis, NModal, NPopconfirm, NProgress, NTag, NUpload } from 'naive-ui';
 import { uploadAccept } from '@/constants/common';
 import { fakePaginationRequest } from '@/service/request';
 import { UploadStatus } from '@/enum';
@@ -10,14 +10,41 @@ import UploadDialog from './modules/upload-dialog.vue';
 import SearchDialog from './modules/search-dialog.vue';
 
 const appStore = useAppStore();
+type KnowledgeBaseFilter = 'all' | 'mine' | 'others';
 
 // 文件预览相关状态
 const previewVisible = ref(false);
 const previewFileName = ref('');
 const previewFileMd5 = ref('');
+const filter = ref<KnowledgeBaseFilter>('all');
 
 function apiFn() {
   return fakePaginationRequest<Api.KnowledgeBase.List>({ url: '/documents/uploads' });
+}
+
+function copyTextCompat(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+    return;
+  }
+  fallbackCopy(text);
+}
+
+function fallbackCopy(text: string) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.top = '0';
+  ta.style.left = '0';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
 }
 
 function renderIcon(fileName: string) {
@@ -34,7 +61,7 @@ function handleFilePreview(fileName: string, fileMd5: string) {
   console.log('[知识库] 点击预览按钮:', {
     fileName,
     fileMd5,
-    '完整信息': { fileName, fileMd5 }
+    完整信息: { fileName, fileMd5 }
   });
 
   previewFileName.value = fileName;
@@ -63,7 +90,7 @@ const { columns, columnChecks, data, getData, loading } = useTable({
           {renderIcon(row.fileName)}
           <NEllipsis lineClamp={2} tooltip>
             <span
-              class="cursor-pointer hover:text-primary transition-colors"
+              class="cursor-pointer transition-colors hover:text-primary"
               onClick={() => handleFilePreview(row.fileName, row.fileMd5)}
             >
               {row.fileName}
@@ -79,9 +106,9 @@ const { columns, columnChecks, data, getData, loading } = useTable({
       render: row => (
         <NEllipsis tooltip>
           <span
-            class="cursor-pointer hover:text-primary transition-colors font-mono text-3"
+            class="cursor-pointer text-3 font-mono transition-colors hover:text-primary"
             onClick={() => {
-              navigator.clipboard.writeText(row.fileMd5);
+              copyTextCompat(row.fileMd5);
               window.$message?.success('MD5已复制');
             }}
             title="点击复制MD5"
@@ -111,9 +138,10 @@ const { columns, columnChecks, data, getData, loading } = useTable({
     },
     {
       key: 'isPublic',
-      title: '是否公开',
+      title: '可见范围',
       width: 100,
-      render: row => (row.public || row.isPublic ? <NTag type="success">公开</NTag> : <NTag type="warning">私有</NTag>)
+      render: row =>
+        row.public || row.isPublic ? <NTag type="success">组织内公开</NTag> : <NTag type="warning">仅自己可见</NTag>
     },
     {
       key: 'createdAt',
@@ -124,28 +152,26 @@ const { columns, columnChecks, data, getData, loading } = useTable({
     {
       key: 'operate',
       title: '操作',
-      width: 180,
+      width: 260,
       render: row => (
-        <div class="flex gap-4">
+        <div class="flex flex-wrap gap-4">
           {renderResumeUploadButton(row)}
-          <NButton
-            type="primary"
-            ghost
-            size="small"
-            onClick={() => handleFilePreview(row.fileName, row.fileMd5)}
-          >
+          <NButton type="primary" ghost size="small" onClick={() => handleFilePreview(row.fileName, row.fileMd5)}>
             预览
           </NButton>
-          <NPopconfirm onPositiveClick={() => handleDelete(row.fileMd5)}>
-            {{
-              default: () => '确认删除当前文件吗？',
-              trigger: () => (
-                <NButton type="error" ghost size="small">
-                  删除
-                </NButton>
-              )
-            }}
-          </NPopconfirm>
+          {isCurrentUserFile(row) ? renderVisibilityToggleButton(row) : null}
+          {isCurrentUserFile(row) ? (
+            <NPopconfirm onPositiveClick={() => handleDelete(row.fileMd5)}>
+              {{
+                default: () => '确认删除当前文件吗？',
+                trigger: () => (
+                  <NButton type="error" ghost size="small">
+                    删除
+                  </NButton>
+                )
+              }}
+            </NPopconfirm>
+          ) : null}
         </div>
       )
     }
@@ -154,6 +180,71 @@ const { columns, columnChecks, data, getData, loading } = useTable({
 
 const store = useKnowledgeBaseStore();
 const { tasks } = storeToRefs(store);
+const authStore = useAuthStore();
+
+const filterLabelMap: Record<KnowledgeBaseFilter, string> = {
+  all: '全部文件',
+  mine: '个人',
+  others: '学院/学校公开'
+};
+
+const activeFilterLabel = computed(() => filterLabelMap[filter.value]);
+
+const filterOptions = computed<DropdownOption[]>(() => [
+  { key: 'all', label: '全部文件' },
+  { key: 'mine', label: '个人' },
+  { key: 'others', label: '学院/学校公开' }
+]);
+
+function isCurrentUserFile(row: Api.KnowledgeBase.UploadTask) {
+  if (row.userId == null) {
+    return Boolean(row.file);
+  }
+  return String(row.userId) === String(authStore.userInfo.id);
+}
+
+const filteredTasks = computed(() => {
+  if (filter.value === 'mine') {
+    return tasks.value.filter(task => isCurrentUserFile(task));
+  }
+  if (filter.value === 'others') {
+    return tasks.value.filter(task => !isCurrentUserFile(task));
+  }
+  return tasks.value;
+});
+
+function switchFilter(next: KnowledgeBaseFilter) {
+  if (filter.value === next) return;
+  filter.value = next;
+}
+
+function handleSelectFilter(key: string) {
+  switchFilter(key as KnowledgeBaseFilter);
+}
+
+watch(
+  () => authStore.userInfo.id,
+  (newId, oldId) => {
+    if (newId !== oldId) {
+      // 切换账号：先把上个账号遗留的已完成任务清掉，再按当前账号的数据重建
+      tasks.value = [];
+      if (newId) {
+        getList();
+      }
+    }
+  }
+);
+
+// 学校或学院变动后，后端会把公开文件迁到新组织标签，这里跟着重拉
+watch(
+  () => [authStore.userInfo.schoolTag, authStore.userInfo.collegeTag].join('|'),
+  (cur, prev) => {
+    if (cur !== prev) {
+      getList();
+    }
+  }
+);
+
 onMounted(async () => {
   await getList();
 });
@@ -179,37 +270,24 @@ async function getList() {
     return;
   }
 
-  // 遍历获取到的数据，以处理每个项目
-  data.value.forEach((item, dataIndex) => {
-    // 检查项目状态是否为已完成
+  // 本地进行中的任务保留（上传中 / 中断），其它字段一律以接口返回为准，
+  // 避免切换账号或改学校后还看到旧的 orgTagName / 可见范围。
+  const remoteMd5 = new Set(data.value.map(item => item.fileMd5));
+  const localActive = tasks.value.filter(
+    task =>
+      task.status !== UploadStatus.Completed &&
+      task.status !== UploadStatus.Break &&
+      !remoteMd5.has(task.fileMd5)
+  );
+
+  const remoteTasks = data.value.map(item => {
     if (item.status === UploadStatus.Completed) {
-      // 查找任务列表中是否有匹配的文件MD5
-      const index = tasks.value.findIndex(task => task.fileMd5 === item.fileMd5);
-      // 如果找到匹配项，则更新其状态
-      if (index !== -1) {
-        tasks.value[index].status = UploadStatus.Completed;
-        console.log(`[知识库] 更新现有任务[${index}]:`, {
-          fileName: item.fileName,
-          fileMd5: item.fileMd5
-        });
-      } else {
-        // 如果没有找到匹配项，则将该项目添加到任务列表中
-        tasks.value.push(item);
-        console.log(`[知识库] 添加新任务[${tasks.value.length - 1}]:`, {
-          fileName: item.fileName,
-          fileMd5: item.fileMd5
-        });
-      }
-    } else if (!tasks.value.some(task => task.fileMd5 === item.fileMd5)) {
-      // 如果项目状态不是已完成，并且任务列表中没有相同的文件MD5，则将该项目的状态设置为中断，并添加到任务列表中
-      item.status = UploadStatus.Break;
-      tasks.value.push(item);
-      console.log(`[知识库] 添加中断任务[${tasks.value.length - 1}]:`, {
-        fileName: item.fileName,
-        fileMd5: item.fileMd5
-      });
+      return { ...item, status: UploadStatus.Completed };
     }
+    return { ...item, status: UploadStatus.Break };
   });
+
+  tasks.value = [...localActive, ...remoteTasks];
 
   console.log('[知识库] 任务列表处理完成，总数:', tasks.value.length);
   tasks.value.forEach((task, index) => {
@@ -219,6 +297,28 @@ async function getList() {
       status: task.status
     });
   });
+}
+
+function renderVisibilityToggleButton(row: Api.KnowledgeBase.UploadTask) {
+  if (row.status !== UploadStatus.Completed) return null;
+  const isPublic = Boolean(row.public ?? row.isPublic);
+  const label = isPublic ? '设为私有' : '设为公开';
+  return (
+    <NButton size="small" ghost onClick={() => handleToggleVisibility(row, !isPublic)}>
+      {label}
+    </NButton>
+  );
+}
+
+async function handleToggleVisibility(row: Api.KnowledgeBase.UploadTask, nextIsPublic: boolean) {
+  const { error } = await request({
+    url: `/documents/${row.fileMd5}/visibility`,
+    method: 'PATCH',
+    data: { isPublic: nextIsPublic }
+  });
+  if (error) return;
+  window.$message?.success('可见范围已更新');
+  await getList();
 }
 
 async function handleDelete(fileMd5: string) {
@@ -331,19 +431,35 @@ async function onBeforeUpload(
       <template #header-extra>
         <TableHeaderOperation v-model:columns="columnChecks" :loading="loading" @add="handleUpload" @refresh="getList">
           <template #prefix>
-            <NButton size="small" ghost type="primary" @click="handleSearch">
-              <template #icon>
-                <icon-ic-round-search class="text-icon" />
-              </template>
-              检索知识库
-            </NButton>
+            <div class="kb-toolbar">
+              <NDropdown trigger="click" placement="bottom-start" :options="filterOptions" @select="handleSelectFilter">
+                <NButton class="toolbar-btn filter-btn" size="small">
+                  <template #icon>
+                    <icon-solar:filter-line-duotone />
+                  </template>
+                  筛选
+                  <span class="filter-pill">{{ activeFilterLabel }}</span>
+                  <icon-solar:alt-arrow-down-linear class="text-14px color-#94a3b8" />
+                </NButton>
+              </NDropdown>
+              <div v-if="filter !== 'all'" class="filter-hint">
+                当前筛选：
+                <span>{{ activeFilterLabel }}</span>
+              </div>
+              <NButton class="toolbar-btn search-btn" size="small" ghost type="primary" @click="handleSearch">
+                <template #icon>
+                  <icon-ic-round-search class="text-icon" />
+                </template>
+                检索知识库
+              </NButton>
+            </div>
           </template>
         </TableHeaderOperation>
       </template>
       <NDataTable
         striped
         :columns="columns"
-        :data="tasks"
+        :data="filteredTasks"
         size="small"
         :flex-height="!appStore.isMobile"
         :scroll-x="962"
@@ -356,15 +472,23 @@ async function onBeforeUpload(
     </NCard>
     <UploadDialog v-model:visible="uploadVisible" />
     <SearchDialog v-model:visible="searchVisible" />
-    
+
     <!-- 文件预览弹窗 -->
-    <NModal v-model:show="previewVisible" preset="card" title="文件预览" style="width: 80%; max-width: 1000px;">
-      <FilePreview
-        :file-name="previewFileName"
-        :file-md5="previewFileMd5"
-        :visible="previewVisible"
-        @close="closeFilePreview"
-      />
+    <NModal
+      v-model:show="previewVisible"
+      preset="card"
+      title="文件预览"
+      class="file-preview-modal"
+      style="width: 90vw; max-width: 1400px; height: 92vh"
+    >
+      <div class="file-preview-modal-body">
+        <FilePreview
+          :file-name="previewFileName"
+          :file-md5="previewFileMd5"
+          :visible="previewVisible"
+          @close="closeFilePreview"
+        />
+      </div>
     </NModal>
   </div>
 </template>
@@ -374,9 +498,82 @@ async function onBeforeUpload(
   transition: width 0.3s ease;
 }
 
+.kb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.toolbar-btn {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.filter-btn {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.92);
+  color: #334155;
+}
+
+.search-btn {
+  min-width: 108px;
+}
+
+.filter-pill {
+  margin-left: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(6, 95, 70, 0.08);
+  color: #065F46;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.filter-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #64748b;
+  font-size: 12px;
+
+  span {
+    margin-left: 4px;
+    color: #0f172a;
+    font-weight: 600;
+  }
+}
+
 :deep() {
   .n-progress-icon.n-progress-icon--as-text {
     white-space: nowrap;
+  }
+
+  .file-preview-modal.n-card {
+    height: 92vh !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .file-preview-modal .n-card__content {
+    padding: 0 !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .file-preview-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
   }
 }
 </style>

@@ -1,0 +1,13 @@
+frontend/
+docs/
+.qoder/
+.git/
+.gitattributes
+.gitignore
+.idea/
+*.iml
+CLAUDE.md
+LICENSE
+README.md
+image.png
+build-push.ps1

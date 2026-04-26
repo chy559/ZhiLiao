@@ -122,6 +122,17 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
+    name: 'posts',
+    path: '/posts',
+    component: 'layout.base$view.posts',
+    meta: {
+      title: 'posts',
+      i18nKey: 'route.posts',
+      icon: 'solar:users-group-rounded-line-duotone',
+      order: 7
+    }
+  },
+  {
     name: 'user',
     path: '/user',
     component: 'layout.base$view.user',

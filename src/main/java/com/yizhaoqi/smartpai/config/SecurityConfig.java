@@ -49,6 +49,8 @@ public class SecurityConfig {
                             .requestMatchers("/chat/**", "/ws/**").permitAll()
                             // 允许登录注册接口
                             .requestMatchers("/api/v1/users/register", "/api/v1/users/login").permitAll()
+                            // 邮箱验证码：发送 (register/reset 场景匿名，bind 场景由控制器内部校验 JWT) / 忘记密码重置
+                            .requestMatchers("/api/v1/users/send-email-code", "/api/v1/users/reset-password").permitAll()
                             // 允许测试接口
                             .requestMatchers("/api/v1/test/**").permitAll()
                             // 文件上传和下载相关接口 - 普通用户和管理员都可访问
@@ -63,6 +65,20 @@ public class SecurityConfig {
                             .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                             // 用户组织标签管理接口
                             .requestMatchers("/api/v1/users/primary-org").hasAnyRole("USER", "ADMIN")
+                            // 头像上传接口
+                            .requestMatchers("/api/v1/users/avatar").hasAnyRole("USER", "ADMIN")
+                            // 修改昵称 / 修改密码
+                            .requestMatchers("/api/v1/users/profile", "/api/v1/users/password").hasAnyRole("USER", "ADMIN")
+                            // 绑定邮箱（登录后）
+                            .requestMatchers("/api/v1/users/bind-email").hasAnyRole("USER", "ADMIN")
+                            // 注销账号（只允许 USER；管理员由业务层再次拒绝）
+                            .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/v1/users/me").hasAnyRole("USER", "ADMIN")
+                            // 学校/学院级联列表 + 选择
+                            .requestMatchers("/api/v1/users/schools-and-colleges", "/api/v1/users/school-college").hasAnyRole("USER", "ADMIN")
+                            // 专业字典 + 选择
+                            .requestMatchers("/api/v1/users/majors", "/api/v1/users/major").hasAnyRole("USER", "ADMIN")
+                            // 帖子相关接口
+                            .requestMatchers("/api/v1/posts/**").hasAnyRole("USER", "ADMIN")
                             // 其他请求需要认证
                             .anyRequest().authenticated())
                     // 配置会话管理策略

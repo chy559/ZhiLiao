@@ -10,4 +10,8 @@ public interface OrganizationTagRepository extends JpaRepository<OrganizationTag
     Optional<OrganizationTag> findByTagId(String tagId);
     List<OrganizationTag> findByParentTag(String parentTag);
     boolean existsByTagId(String tagId);
-} 
+
+    List<OrganizationTag> findByType(OrganizationTag.Type type);
+    List<OrganizationTag> findByTypeAndParentTag(OrganizationTag.Type type, String parentTag);
+    long countByType(OrganizationTag.Type type);
+}

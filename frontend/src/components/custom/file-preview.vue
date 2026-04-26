@@ -7,7 +7,13 @@
         <span class="font-medium">{{ fileName }}</span>
       </div>
       <div class="flex items-center gap-2">
-        <NButton size="small" @click="downloadFile" :loading="downloading">
+        <NButton v-if="previewUrl" size="small" @click="openInNewTab">
+          <template #icon>
+            <icon-mdi-open-in-new />
+          </template>
+          新标签打开
+        </NButton>
+        <NButton size="small" :loading="downloading" @click="downloadFile">
           <template #icon>
             <icon-mdi-download />
           </template>
@@ -20,7 +26,7 @@
         </NButton>
       </div>
     </div>
-    
+
     <!-- 预览内容 -->
     <div class="preview-content">
       <template v-if="loading">
@@ -32,6 +38,14 @@
         <div class="flex flex-col items-center justify-center h-full text-gray-500">
           <icon-mdi-alert-circle class="text-48 mb-4" />
           <p>{{ error }}</p>
+        </div>
+      </template>
+      <template v-else-if="previewMode === 'iframe' && previewUrl">
+        <iframe :src="previewUrl" class="preview-iframe" />
+      </template>
+      <template v-else-if="previewMode === 'image' && previewUrl">
+        <div class="content-wrapper flex items-center justify-center">
+          <img :src="previewUrl" :alt="fileName" class="preview-image" />
         </div>
       </template>
       <template v-else>
@@ -49,6 +63,7 @@ import { NButton, NSpin } from 'naive-ui';
 import SvgIcon from '@/components/custom/svg-icon.vue';
 import { request } from '@/service/request';
 import { getFileExt } from '@/utils/common';
+import { localStg } from '@/utils/storage';
 
 interface Props {
   fileName: string;
@@ -67,8 +82,12 @@ const loading = ref(false);
 const downloading = ref(false);
 const content = ref('');
 const error = ref('');
+const previewUrl = ref('');
+const previewMode = ref<'text' | 'iframe' | 'image'>('text');
 
-// 获取文件图标
+const IFRAME_EXTS = ['pdf'];
+const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+
 function getFileIcon(fileName: string) {
   const ext = getFileExt(fileName);
   if (ext) {
@@ -78,103 +97,85 @@ function getFileIcon(fileName: string) {
   return 'dflt';
 }
 
-// 监听文件名变化，加载预览内容
-watch(() => props.fileName, async (newFileName) => {
-  if (newFileName && props.visible) {
-    await loadPreviewContent();
-  }
-}, { immediate: true });
+function resolveMode(fileName: string): 'text' | 'iframe' | 'image' {
+  const ext = (getFileExt(fileName) || '').toLowerCase();
+  if (IFRAME_EXTS.includes(ext)) return 'iframe';
+  if (IMAGE_EXTS.includes(ext)) return 'image';
+  return 'text';
+}
 
-// 监听可见性变化
-watch(() => props.visible, async (visible) => {
-  if (visible && props.fileName) {
-    await loadPreviewContent();
-  }
-});
+watch(
+  () => props.fileName,
+  async newFileName => {
+    if (newFileName && props.visible) {
+      await loadPreviewContent();
+    }
+  },
+  { immediate: true }
+);
 
-// 加载预览内容
+watch(
+  () => props.visible,
+  async visible => {
+    if (visible && props.fileName) {
+      await loadPreviewContent();
+    }
+  }
+);
+
 async function loadPreviewContent() {
   if (!props.fileName) return;
-
-  console.log('[文件预览] 开始加载预览内容:', {
-    fileName: props.fileName,
-    fileMd5: props.fileMd5,
-    visible: props.visible
-  });
 
   loading.value = true;
   error.value = '';
   content.value = '';
+  previewUrl.value = '';
+  previewMode.value = resolveMode(props.fileName);
 
   try {
-    const token = localStorage.getItem('token');
+    const token = localStg.get('token') || '';
 
-    // 优先使用 MD5 预览（如果存在）
-    if (props.fileMd5) {
-      console.log('[文件预览] 使用MD5模式预览，请求参数:', {
-        fileName: props.fileName,
-        fileMd5: props.fileMd5,
-        hasToken: !!token
-      });
-
+    if (previewMode.value === 'iframe' || previewMode.value === 'image') {
       const { error: requestError, data } = await request<{
         fileName: string;
-        content: string;
+        fileMd5: string;
+        previewUrl: string;
         fileSize: number;
       }>({
-        url: '/documents/preview',
+        url: '/documents/preview-url',
         params: {
           fileName: props.fileName,
-          fileMd5: props.fileMd5,
+          fileMd5: props.fileMd5 || undefined,
           token: token || undefined
         }
-      });
-
-      console.log('[文件预览] MD5模式API响应:', {
-        hasError: !!requestError,
-        error: requestError,
-        hasData: !!data,
-        contentLength: data?.content?.length || 0,
-        contentPreview: data?.content?.substring(0, 100) || ''
       });
 
       if (requestError) {
         error.value = '预览失败：' + (requestError.message || '未知错误');
       } else if (data) {
-        content.value = data.content;
+        previewUrl.value = data.previewUrl;
       }
-    } else {
-      // 降级：使用文件名预览（向后兼容）
-      console.log('[文件预览] 使用文件名模式预览（降级）, 请求参数:', {
+      return;
+    }
+
+    // 文本预览（txt/md/doc/docx 等，走 Tika）
+    const { error: requestError, data } = await request<{
+      fileName: string;
+      content: string;
+      fileSize: number;
+    }>({
+      url: '/documents/preview',
+      params: {
         fileName: props.fileName,
-        hasToken: !!token
-      });
-
-      const { error: requestError, data } = await request<{
-        fileName: string;
-        content: string;
-        fileSize: number;
-      }>({
-        url: '/documents/preview',
-        params: {
-          fileName: props.fileName,
-          token: token || undefined
-        }
-      });
-
-      console.log('[文件预览] 文件名模式API响应:', {
-        hasError: !!requestError,
-        error: requestError,
-        hasData: !!data,
-        contentLength: data?.content?.length || 0,
-        contentPreview: data?.content?.substring(0, 100) || ''
-      });
-
-      if (requestError) {
-        error.value = '预览失败：' + (requestError.message || '未知错误');
-      } else if (data) {
-        content.value = data.content;
+        fileMd5: props.fileMd5 || undefined,
+        token: token || undefined
       }
+    });
+
+    if (requestError) {
+      error.value = '预览失败：' + (requestError.message || '未知错误');
+    } else if (data) {
+      content.value = data.content;
     }
   } catch (err: any) {
     error.value = '预览失败：' + (err.message || '网络错误');
@@ -183,16 +184,20 @@ async function loadPreviewContent() {
   }
 }
 
-// 下载文件
+function openInNewTab() {
+  if (previewUrl.value) {
+    window.open(previewUrl.value, '_blank');
+  }
+}
+
 async function downloadFile() {
   if (!props.fileName) return;
 
   downloading.value = true;
 
   try {
-    const token = localStorage.getItem('token');
+    const token = localStg.get('token') || '';
 
-    // 优先使用 MD5 下载（如果存在）
     if (props.fileMd5) {
       const { error: requestError, data } = await request<{
         fileName: string;
@@ -210,7 +215,6 @@ async function downloadFile() {
       if (requestError) {
         window.$message?.error('下载失败：' + (requestError.message || '未知错误'));
       } else if (data) {
-        // 使用预签名URL下载文件
         const link = document.createElement('a');
         link.href = data.downloadUrl;
         link.download = data.fileName;
@@ -220,7 +224,6 @@ async function downloadFile() {
         window.$message?.success('开始下载文件');
       }
     } else {
-      // 降级：使用文件名下载（向后兼容）
       const { error: requestError, data } = await request<{
         fileName: string;
         downloadUrl: string;
@@ -236,7 +239,6 @@ async function downloadFile() {
       if (requestError) {
         window.$message?.error('下载失败：' + (requestError.message || '未知错误'));
       } else if (data) {
-        // 使用预签名URL下载文件
         const link = document.createElement('a');
         link.href = data.downloadUrl;
         link.download = data.fileName;
@@ -253,7 +255,6 @@ async function downloadFile() {
   }
 }
 
-// 关闭预览
 function closePreview() {
   emit('close');
 }
@@ -261,24 +262,35 @@ function closePreview() {
 
 <style scoped lang="scss">
 .file-preview-container {
-  @apply h-full flex flex-col bg-white border-l border-gray-200;
-  
+  @apply h-full min-h-0 flex flex-col bg-white;
+
   .preview-header {
     @apply flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50;
   }
-  
+
   .preview-content {
-    @apply flex-1 overflow-hidden;
-    
+    @apply min-h-0 flex-1 overflow-hidden;
+    min-height: 70vh; // 兜底：父级 flex 链一旦断裂仍能保证可视高度
+
     .content-wrapper {
       @apply h-full overflow-auto p-4;
     }
-    
+
     .preview-text {
       @apply text-sm font-mono whitespace-pre-wrap break-words;
       font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
       line-height: 1.5;
       margin: 0;
+    }
+
+    .preview-iframe {
+      @apply w-full border-0;
+      height: 100%;
+      min-height: 70vh;
+    }
+
+    .preview-image {
+      @apply max-w-full max-h-full object-contain;
     }
   }
 }

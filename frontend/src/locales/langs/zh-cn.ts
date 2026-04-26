@@ -167,7 +167,8 @@ const local: App.I18n.Schema = {
     'knowledge-base': '复习资料库',
     'org-tag': '组织标签',
     user: '用户管理',
-    'personal-center': '个人中心'
+    'personal-center': '个人中心',
+    posts: '交流广场'
   },
   page: {
     login: {

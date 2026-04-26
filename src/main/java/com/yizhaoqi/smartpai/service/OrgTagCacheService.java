@@ -202,6 +202,19 @@ public class OrgTagCacheService {
     }
 
     /**
+     * 用数据库中用户实际持有的原始标签重建 user:org_tags 与 user:effective_org_tags 两份缓存。
+     * 用于纠正"登录后首发搜索时缓存为空，被错误落地成只有 DEFAULT"的脏缓存。
+     */
+    public List<String> refreshUserOrgTagCaches(String username, List<String> rawTags) {
+        deleteUserOrgTagsCache(username);
+        deleteUserEffectiveTagsCache(username);
+        if (rawTags != null && !rawTags.isEmpty()) {
+            cacheUserOrgTags(username, rawTags);
+        }
+        return getUserEffectiveOrgTags(username);
+    }
+
+    /**
      * 删除用户有效标签缓存
      */
     public void deleteUserEffectiveTagsCache(String username) {

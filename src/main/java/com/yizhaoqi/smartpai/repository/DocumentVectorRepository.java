@@ -20,4 +20,9 @@ public interface DocumentVectorRepository extends JpaRepository<DocumentVector, 
     @Modifying
     @Query(value = "DELETE FROM document_vectors WHERE file_md5 = ?1", nativeQuery = true)// ？1表示匹配第一个参数
     void deleteByFileMd5(String fileMd5);
+
+    @Transactional
+    @Modifying
+    @Query(value = "UPDATE document_vectors SET org_tag = ?2, is_public = ?3 WHERE file_md5 = ?1", nativeQuery = true)
+    int updateOrgTagByFileMd5(String fileMd5, String orgTag, boolean isPublic);
 }

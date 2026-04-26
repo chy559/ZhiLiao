@@ -28,6 +28,15 @@ function scrollToBottom() {
 const range = ref<[number, number]>([dayjs().subtract(7, 'day').valueOf(), dayjs().add(1, 'day').valueOf()]);
 const userId = ref<number>(store.userInfo.id);
 
+watch(
+  () => store.userInfo.id,
+  newId => {
+    if (newId) {
+      userId.value = newId;
+    }
+  }
+);
+
 const params = computed(() => {
   return {
     userid: userId.value,

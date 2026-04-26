@@ -43,6 +43,13 @@ declare namespace Api {
       role: 'USER' | 'ADMIN';
       orgTags: string[];
       primaryOrg: string;
+      avatarUrl?: string;
+      email?: string | null;
+      /** 老用户未绑定邮箱时为 true，前端应弹窗引导 */
+      requireEmailBind?: boolean;
+      schoolTag?: string | null;
+      collegeTag?: string | null;
+      majorTag?: string | null;
     }
   }
 
@@ -79,6 +86,7 @@ declare namespace Api {
     type Mine = {
       orgTags: string[];
       primaryOrg: string;
+      privateOrg?: string | null;
       orgTagDetails: Details[];
     };
   }

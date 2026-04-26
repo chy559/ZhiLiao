@@ -24,6 +24,19 @@ public class OrganizationTag {
     @Column(name = "parent_tag", length = 255)
     private String parentTag; // 父标签ID
 
+    /**
+     * 标签类型：SCHOOL=学校 / COLLEGE=学院 / OTHER=其它（默认、私人空间等）。
+     * 前端在"选学校/学院"下拉里只读取 SCHOOL / COLLEGE，避免把 DEFAULT / PRIVATE_* 混进去。
+     * 旧数据字段为 null，当作 OTHER 处理。
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type", length = 16)
+    private Type type;
+
+    public enum Type {
+        SCHOOL, COLLEGE, MAJOR, OTHER
+    }
+
     @ManyToOne
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy; // 创建者ID

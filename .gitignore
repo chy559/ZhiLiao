@@ -1,78 +1,172 @@
-# Compiled class file
+# ==========================================================================
+# Java / Maven
+# ==========================================================================
+target/
+build/
+out/
 *.class
-
-# Log file
-*.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
 *.jar
 *.war
-*.nar
 *.ear
+*.nar
 *.zip
 *.tar.gz
 *.rar
+dependency-reduced-pom.xml
+.mvn/wrapper/maven-wrapper.jar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# ==========================================================================
+# JVM 崩溃 / 堆转储（http://www.java.com/en/download/help/error_hotspot.xml）
+# ==========================================================================
 hs_err_pid*
+hs_err_pid*.log
 replay_pid*
+replay_pid*.log
+*.hprof
 
-.DS_Store
-.vite-ssg-dist
-.vite-ssg-temp
-*.local
-dist
-dist-ssr
-node_modules
+# ==========================================================================
+# Spring Boot
+# ==========================================================================
+spring-boot-*.log
+application-local.yml
+application-local.properties
+src/main/resources/application.yml~
+
+# ==========================================================================
+# IntelliJ IDEA / JetBrains
+# ==========================================================================
 .idea/
-*.log
-/target
-/.idea
-/.vscode
+*.iml
+*.iws
+*.ipr
 
-# Logs
-logs
-*.log
+# ==========================================================================
+# Eclipse
+# ==========================================================================
+.project
+.classpath
+.settings/
+.metadata/
+.factorypath
+.apt_generated/
+.springBeans
+bin/
+
+# ==========================================================================
+# VS Code
+# ==========================================================================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+frontend/.vscode/*
+!frontend/.vscode/extensions.json
+!frontend/.vscode/settings.json
+!frontend/.vscode/launch.json
+.VSCodeCounter
+
+# Visual Studio 副产物
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ==========================================================================
+# 前端（Node / pnpm / Vite）
+# ==========================================================================
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+dist-ssr/
+**/build/
+coverage/
+.vite/
+.vite-ssg-dist/
+.vite-ssg-temp/
+.pnpm-store/
+.turbo/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-.DS_Store
-dist
-dist-ssr
-coverage
-*.local
-
-/cypress/videos/
-/cypress/screenshots/
-
-# Editor directories and files
-frontend/.vscode/*
-frontend/!.vscode/extensions.json
-frontend/!.vscode/settings.json
-frontend/!.vscode/launch.json
-.idea
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-frontend/package-lock.json
-frontend/yarn.lock
-
-.VSCodeCounter
+# 前端自动生成的类型声明
 frontend/src/typings/components.d.ts
 frontend/src/typings/auto-imports.d.ts
 frontend/public/languages
 frontend/public/themes
-src/main/resources/application.yml~
+
+# Cypress
+/cypress/videos/
+/cypress/screenshots/
+
+# 包管理器锁文件：项目用 pnpm，屏蔽误入的 npm/yarn 锁
+frontend/package-lock.json
+frontend/yarn.lock
+
+# ==========================================================================
+# 环境变量（含密钥）
+# .env.prod / .env.test 是模板，允许提交
+# ==========================================================================
+.env
+.env.local
+.env.*.local
+*.local
+
+!frontend/.env.prod
+!frontend/.env.test
+
+# ==========================================================================
+# 日志
+# ==========================================================================
+logs/
+**/logs/
+*.log
+
+# ==========================================================================
+# 操作系统生成文件
+# ==========================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ==========================================================================
+# 临时文件 / 编辑器备份
+# ==========================================================================
+*.bak
+*.tmp
+*.swp
+*.swo
+*.sw?
+*~
+*.ctxt
+.mtj.tmp/
+
+# ==========================================================================
+# 根目录随手粘贴的截图（如需保留请移到 docs/ 并在此加白名单）
+# ==========================================================================
+/image.png
+/image*.png
+
+# ==========================================================================
+# 密钥 / 凭据（安全兜底，防止误提交）
+# ==========================================================================
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+credentials.json
+
+src/main/resources/application-docker.yml
+src/main/resources/application-docker-local.yml
+.codex/
